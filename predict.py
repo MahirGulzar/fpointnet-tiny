@@ -109,7 +109,7 @@ def match_predictions_points_structured(frustums, predicted_labels, masks):
 
     for points, predictions, mask in zip(frustums, predicted_labels, masks):
         points = np.array(points)
-
+        structured_points = list()
         for point_index in range(len(points)):
             points_matching_original = np.where(mask == point_index)[0]
 
@@ -117,10 +117,11 @@ def match_predictions_points_structured(frustums, predicted_labels, masks):
                 mode_label = 0
             else:
                 mode_label = stats.mode(predictions[points_matching_original]).mode[0]
+                to_append = points[point_index]
+                to_append[3] = float(mode_label)
+                structured_points.append(to_append)
 
-            points[point_index, 3] = float(mode_label)
-
-        predicted_frustums.append(points)
+        predicted_frustums.append(structured_points)
 
     return predicted_frustums
 
@@ -133,11 +134,10 @@ def save_predictions(output_dir, filenames, frustum_data):
 
 def save_predictions_sequential(output_dir, frustum_data):
 
-    print(frustum_data[0])
 
     for idx, data in enumerate(frustum_data):
         output_file_path = os.path.join(output_dir, 'frame'+str(idx)+'.pcd')
-        pcd_cloud = pypcd.make_xyz_label_point_cloud(data)
+        pcd_cloud = pypcd.make_xyz_label_point_cloud(np.array(data))
         pcd_cloud.save(output_file_path)
 
 
@@ -233,10 +233,11 @@ if __name__ == '__main__':
 
     predictions = all_samples_softmax(prediction_logits)
 
-    frustums_with_predicted_labels = match_predictions_points(frustums_data, predictions, masks)
-    # save_predictions(output_dir, filenames, frustums_with_predicted_labels)
+    # frustums_with_predicted_structured_labels = match_predictions_points_structured(frustums_data, predictions, masks)
+    # save_predictions_sequential(output_dir, frustums_with_predicted_structured_labels)
 
-    save_predictions_sequential(output_dir, predictions)
+    frustums_with_predicted_labels = match_predictions_points(frustums_data, predictions, masks)
+    save_predictions(output_dir, filenames, frustums_with_predicted_labels)
 
     if not args.eval:
         exit()
