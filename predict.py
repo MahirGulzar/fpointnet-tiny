@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow as tf
 from fpointnet_tiny_functional import get_compiled_model
 from scipy import stats
+import pypcd
 
 
 def read_raw_data(data_path, allowed_class, sample_limit=None):
@@ -102,11 +103,42 @@ def match_predictions_points(frustums, predicted_labels, masks):
     return predicted_frustums
 
 
+def match_predictions_points_structured(frustums, predicted_labels, masks):
+
+    predicted_frustums = list()
+
+    for points, predictions, mask in zip(frustums, predicted_labels, masks):
+        points = np.array(points)
+
+        for point_index in range(len(points)):
+            points_matching_original = np.where(mask == point_index)[0]
+
+            if len(points_matching_original) == 0:
+                mode_label = 0
+            else:
+                mode_label = stats.mode(predictions[points_matching_original]).mode[0]
+
+            points[point_index, 3] = float(mode_label)
+
+        predicted_frustums.append(points)
+
+    return predicted_frustums
+
+
 def save_predictions(output_dir, filenames, frustum_data):
 
     for filename, data in zip(filenames, frustum_data):
         output_file_path = os.path.join(output_dir, filename)
         np.savez(output_file_path, points=data)
+
+def save_predictions_sequential(output_dir, frustum_data):
+
+    print(frustum_data[0])
+
+    for idx, data in enumerate(frustum_data):
+        output_file_path = os.path.join(output_dir, 'frame'+str(idx)+'.pcd')
+        pcd_cloud = pypcd.make_xyz_label_point_cloud(data)
+        pcd_cloud.save(output_file_path)
 
 
 def calculate_accuracy(predictions, values):
@@ -155,7 +187,7 @@ def get_arguments():
     )
 
     parser.add_argument(
-        '--eval', action='store_true', default=False,
+        '--eval', action='store_true', default=True,
         help='Perform evaluation of the predictions'
     )
 
@@ -170,7 +202,6 @@ if __name__ == '__main__':
         exit('Invalid input directory')
 
     output_dir = args.output
-    os.makedirs(output_dir, exist_ok=True)
 
     model_path = args.model
     if os.path.isdir(model_path):
@@ -183,33 +214,35 @@ if __name__ == '__main__':
 
     frustums_data, filenames = read_raw_data(input_dir, allowed_class)
 
-    processed_frustums_data = list()
-    for frustum in frustums_data:
-        processed_frustum = preprocessing.rotate_to_center(frustum)
-        processed_frustum = preprocessing.scale_standard(processed_frustum)
-        processed_frustums_data.append(processed_frustum)
+    # processed_frustums_data = list()
+    # for frustum in frustums_data:
+    #     processed_frustum = preprocessing.rotate_to_center(frustum)
+    #     processed_frustum = preprocessing.scale_standard(processed_frustum)
+    #     processed_frustums_data.append(processed_frustum)
 
-    data_x, data_y, masks = structure_data(processed_frustums_data, num_points)
+    data_x, data_y, masks = structure_data(frustums_data, num_points)
 
     model = get_compiled_model(num_points, 3e-4)  # learning rate is just for reusing the model code
     model.load_weights(model_path)
 
-    start_time = time.perf_counter()
+    start_time = time.time()
     prediction_logits = model.predict(data_x)
-    end_time = time.perf_counter()
+    end_time = time.time()
 
-    print(f'Inference took {end_time - start_time} s')
+    print('Inference took '+str(end_time)+'-' + str(start_time)+'s')
 
     predictions = all_samples_softmax(prediction_logits)
 
     frustums_with_predicted_labels = match_predictions_points(frustums_data, predictions, masks)
-    save_predictions(output_dir, filenames, frustums_with_predicted_labels)
+    # save_predictions(output_dir, filenames, frustums_with_predicted_labels)
+
+    save_predictions_sequential(output_dir, predictions)
 
     if not args.eval:
         exit()
 
     accuracy = calculate_accuracy(predictions, data_y)
-    print(f'Accuracy on structured points is {accuracy:.3f}')
+    print('Accuracy on structured points is '+str(accuracy))
 
     true_accuracy = calculate_true_accuracy(frustums_with_predicted_labels, frustums_data)
-    print(f'Accuracy on raw points is {true_accuracy:.3f}')
+    print('Accuracy on raw points is '+str(true_accuracy))

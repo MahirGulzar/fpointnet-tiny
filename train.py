@@ -86,7 +86,7 @@ def get_arguments():
     )
 
     parser.add_argument(
-        '-e', '--epochs', type=int, default=50,
+        '-e', '--epochs', type=int, default=120,
         help='Number of epochs to train the model for'
     )
 
@@ -133,20 +133,20 @@ if __name__ == '__main__':
     run_id = args.run_id
 
     train_x, train_y = read_raw_data(train_data_path, allowed_class)
-    print(f'Raw training data has {len(train_x)} samples')
+    print('Raw training data has %d samples'%len(train_x))
 
     val_x, val_y = read_raw_data(val_data_path, allowed_class)
-    print(f'Raw validation data has {len(val_x)} samples')
+    print('Raw validation data has %d samples'%len(val_x))
 
     train_x = tf.ragged.constant(train_x, ragged_rank=1)
     train_y = tf.ragged.constant(train_y, ragged_rank=1)
-    print(f'Sanity check for ragged tensors, x shape: {train_x.shape}, y shape: {train_y.shape}')
+    print('Sanity check for ragged tensors, x shape: '+str(train_x.shape)+', y shape: '+str(train_y.shape))
 
     val_x = tf.ragged.constant(val_x, ragged_rank=1)
     val_y = tf.ragged.constant(val_y, ragged_rank=1)
 
     steps_per_epoch = np.ceil(train_x.shape[0] / batch_size).astype(np.int32)
-    print(f'Sanity check steps per epoch: {steps_per_epoch}')
+    print('Sanity check steps per epoch: %d'%steps_per_epoch)
 
     print('#### Assembling Dataset object ####')
     # TODO: Figure out how many to prefetch
@@ -169,18 +169,20 @@ if __name__ == '__main__':
 
     train_time = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     if not run_id:
-        run_id = f'{allowed_class}-{train_time}'
+        run_id = str(allowed_class)+'-'+str(train_time)
 
     log_dir = os.path.join('logs', run_id)
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
 
     model_path = os.path.join('models', run_id, 'model-{epoch:03d}.h5')
-    os.makedirs(os.path.join('models', run_id), exist_ok=True)
+    os.makedirs(os.path.join('models', run_id))
     cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=model_path,
                                                      monitor='val_loss',
                                                      save_weights_only=True,
                                                      save_best_only=True,
                                                      verbose=0)
+
+    earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='val_accuracy', min_delta=0.00001, patience=8)
 
     # TODO: Try different strategies for LR reducing
     reduce_lr_callback = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss', factor=0.6, patience=5, min_lr=1e-5, min_delta=0.001, verbose=1)
@@ -188,7 +190,8 @@ if __name__ == '__main__':
     callbacks = [
         tensorboard_callback,
         cp_callback,
-        reduce_lr_callback
+        reduce_lr_callback,
+        earlystop_callback
     ]
 
     print('#### Training model ####')
