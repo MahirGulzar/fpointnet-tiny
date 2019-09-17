@@ -214,13 +214,22 @@ if __name__ == '__main__':
 
     frustums_data, filenames = read_raw_data(input_dir, allowed_class)
 
-    # processed_frustums_data = list()
-    # for frustum in frustums_data:
-    #     processed_frustum = preprocessing.rotate_to_center(frustum)
-    #     processed_frustum = preprocessing.scale_standard(processed_frustum)
-    #     processed_frustums_data.append(processed_frustum)
+    print("Lenght of frustum data "+str(len(frustums_data)))
 
-    data_x, data_y, masks = structure_data(frustums_data, num_points)
+    processed_frustums_data = list()
+    for frustum in frustums_data:
+        processed_frustum = preprocessing.rotate_to_center(frustum)
+        scale_factor = []
+        mean = []
+        x_ = (processed_frustum[:, :3] - mean)/scale_factor
+        # processed_frustum = preprocessing.scale_standard(processed_frustum)
+        processed_frustums_data.append([x_, processed_frustum[:,3]])
+    
+    print("Shape of processed frustum data"+str(np.array(processed_frustums_data).shape))
+    print("Lenght of processed frustum data "+str(len(processed_frustums_data)))
+
+
+    data_x, data_y, masks = structure_data(processed_frustums_data, num_points)
 
     model = get_compiled_model(num_points, 3e-4)  # learning rate is just for reusing the model code
     model.load_weights(model_path)

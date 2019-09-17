@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import tensorflow as tf
 from fpointnet_tiny_functional import get_compiled_model
+from preprocessing import scale_standard, rotate_to_center
 
 
 FLIPPING_TENSOR = tf.constant([1.0, -1.0, 1.0])
@@ -13,8 +14,7 @@ def read_raw_data(data_path, allowed_class, sample_limit=None):
     data_filenames = sorted(os.listdir(data_path))
     data_filenames = [filename for filename in data_filenames if filename.endswith('.npz')]
 
-    data_x = list()
-    data_y = list()
+    data_list = list()
     num_samples = 0
 
     for filename in data_filenames:
@@ -25,17 +25,62 @@ def read_raw_data(data_path, allowed_class, sample_limit=None):
 
         if class_name != allowed_class:
             continue
-
-        data_x.append(point_data[:, :3].tolist())
-        data_y.append(point_data[:, 3].tolist())
+        
+        data_list.append(point_data.tolist())
 
         num_samples += 1
 
         if sample_limit and num_samples >= sample_limit:
             break
 
-    return data_x, data_y
+    return data_list
 
+def preprocess_raw_train(frustum_data):
+
+    scaled_points_list = list()
+    scale_factor_list = list()
+    mean_list = list()
+
+    for frustum in frustum_data:
+
+        rotated_points = rotate_to_center(frustum)
+        scaled_points, scale_factor, mean = scale_standard(rotated_points, cache_values=True)
+
+        scaled_points_list.append(scaled_points)
+        scale_factor_list.append(scale_factor)
+        mean_list.append(mean)
+    
+    scale_factor = np.array(scale_factor_list).mean(axis=0)[:3]
+    mean = np.array(mean_list).mean(axis=0)[:3]
+
+    return np.array(scaled_points_list), scale_factor, mean
+
+
+def preprocess_raw_val(frustum_data, scale_factor, mean):
+
+    val_X = list()
+    val_Y = list()
+
+    for frustum in frustum_data:
+
+        rotated_points = rotate_to_center(frustum)
+
+        val_x = ((rotated_points[:, :3] - mean)/scale_factor).tolist()
+        val_y = rotated_points[:, 3].tolist()
+
+        val_X.append(val_x)
+        val_Y.append(val_y)
+
+    return val_X, val_Y
+
+def data_and_label_split(frustums):
+    data_x = list()
+    data_y = list()
+    for frustum in frustums:
+        data_x.append(frustum[:, :3].tolist())
+        data_y.append(frustum[:, 3].tolist())
+    
+    return data_x, data_y
 
 @tf.function
 def sample_data(points, labels, num_points):
@@ -81,7 +126,7 @@ def get_arguments():
     )
 
     parser.add_argument(
-        '-np', '--num_points', type=int, default=512,
+        '-np', '--num_points', type=int, default=768,
         help='Number of points to sample from each frustum'
     )
 
@@ -132,18 +177,39 @@ if __name__ == '__main__':
     allowed_class = args.class_name
     run_id = args.run_id
 
-    train_x, train_y = read_raw_data(train_data_path, allowed_class)
-    print('Raw training data has %d samples'%len(train_x))
+    raw_train = read_raw_data(train_data_path, allowed_class)
+    print('Raw training data has %d samples'%len(raw_train))
 
-    val_x, val_y = read_raw_data(val_data_path, allowed_class)
-    print('Raw validation data has %d samples'%len(val_x))
+    preprocessed_train_data, scale_factor, mean = preprocess_raw_train(raw_train)
 
-    train_x = tf.ragged.constant(train_x, ragged_rank=1)
-    train_y = tf.ragged.constant(train_y, ragged_rank=1)
-    print('Sanity check for ragged tensors, x shape: '+str(train_x.shape)+', y shape: '+str(train_y.shape))
+    train_x, train_y = data_and_label_split(preprocessed_train_data)
+
+    print('Preprocessed training data X has %d samples'%len(train_x))
+
+    print('Preprocessed training data Y has %d samples'%len(train_y))
+
+    print('Scale factor of train data is '+str(scale_factor))
+
+    print('Mean of train data is '+str(mean))
+
+    raw_val = read_raw_data(val_data_path, allowed_class)
+
+    print('Raw validation data has %d samples'%len(raw_val))
+
+    val_x, val_y = preprocess_raw_val(raw_val, scale_factor, mean)
+
+    print('Preprocessed validation data X has %d samples'%len(val_x))
+
+    print('Preprocessed validation data Y has %d samples'%len(val_y))
+
+
+    train_x = tf.ragged.constant(np.array(train_x), ragged_rank=1)
+    train_y = tf.ragged.constant(np.array(train_y), ragged_rank=1)
+    print('Sanity check for ragged tensors, Train x shape: '+str(train_x.shape)+', Train y shape: '+str(train_y.shape))
 
     val_x = tf.ragged.constant(val_x, ragged_rank=1)
     val_y = tf.ragged.constant(val_y, ragged_rank=1)
+    print('Sanity check for ragged tensors, Val x shape: '+str(val_x.shape)+', Val y shape: '+str(val_y.shape))
 
     steps_per_epoch = np.ceil(train_x.shape[0] / batch_size).astype(np.int32)
     print('Sanity check steps per epoch: %d'%steps_per_epoch)
@@ -197,3 +263,7 @@ if __name__ == '__main__':
     print('#### Training model ####')
     model = get_compiled_model(num_points, learning_rate)
     model.fit(train_data, steps_per_epoch=steps_per_epoch, epochs=num_epochs, validation_data=val_data, callbacks=callbacks)
+
+    print("----------------------------------")
+    print('Scale factor is '+str(scale_factor))
+    print('Mean of data is '+str(mean))

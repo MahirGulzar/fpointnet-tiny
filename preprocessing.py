@@ -1,3 +1,4 @@
+from __future__ import division
 import argparse
 import os
 import tqdm
@@ -14,6 +15,7 @@ def rotate_to_center(points):
     Returns:
         np.ndarray -- Rotated points with labels, Nx4
     """
+    points = np.array(points)
     points_center_topdown = points.mean(axis=0)[:2]
     angle = np.arccos(points_center_topdown[0] / np.linalg.norm(points_center_topdown))
 
@@ -27,7 +29,7 @@ def rotate_to_center(points):
     return np.c_[rotated_xy, points[:, 2:]]
 
 
-def scale_standard(points):
+def scale_standard(points, cache_values=False):
     """Scale points to follow the mean and standard deviation of the normal gaussian distribution
 
     Arguments:
@@ -36,10 +38,14 @@ def scale_standard(points):
     Returns:
         np.ndarray -- Scaled points with labels, Nx4
     """
-    scale_factors = points.std(axis=0)
-    scaled_points = (points - points.mean(axis=0)) / scale_factors
+    scale_factors = points.std(axis=0)[:3]
+    mean = points.mean(axis=0)[:3]
+    scaled_points = (points[:, :3] - mean) / scale_factors
 
-    return np.c_[scaled_points[:, :3], points[:, 3]]
+    if cache_values:
+        return np.c_[scaled_points[:, :3], points[:, 3]], scale_factors, mean
+    else:
+        return np.c_[scaled_points[:, :3], points[:, 3]]
 
 
 def get_arguments():
