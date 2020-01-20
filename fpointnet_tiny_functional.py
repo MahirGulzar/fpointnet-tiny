@@ -67,11 +67,11 @@ def get_compiled_model(num_points, learning_rate):
         Keras Model -- The compiled Keras model
     """
     model = get_model(num_points)
-
     # The commented loss is the original loss used in older versions of TensorFlow
     # loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=, logits=))
     loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    # optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, epsilon=0.1)
+    optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=0.9)
     model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
 
     return model
